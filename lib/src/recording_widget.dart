@@ -18,6 +18,7 @@ class RecordingWidget extends StatefulWidget {
     this.limitTime = 120,
     required this.onComplete,
     this.outputPath,
+    this.pixelRatio = 1.0,
   });
 
   /// This is the widget you want to record the screen
@@ -35,6 +36,9 @@ class RecordingWidget extends StatefulWidget {
 
   /// [outputPath] output address of the video, make sure you have write permission to this location otherwise leave it null, it will automatically be saved to app cache
   final String? outputPath;
+
+  /// [pixelRatio] is the ratio of the pixel density of the screen, the default value is 1.0
+  final double pixelRatio;
 
   @override
   State<RecordingWidget> createState() => _RecordingWidgetState();
@@ -57,7 +61,7 @@ class _RecordingWidgetState extends State<RecordingWidget> {
   Future<void> getImageSize() async {
     RenderRepaintBoundary boundary =
         recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-    ui.Image image = await boundary.toImage(pixelRatio: 1);
+    ui.Image image = await boundary.toImage(pixelRatio: widget.pixelRatio);
     width = image.width;
     height = image.height;
   }
@@ -175,7 +179,7 @@ class _RecordingWidgetState extends State<RecordingWidget> {
     try {
       RenderRepaintBoundary boundary =
           recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: 1);
+      ui.Image image = await boundary.toImage(pixelRatio: widget.pixelRatio);
       width = image.width;
       height = image.height;
 
