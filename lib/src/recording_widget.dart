@@ -166,16 +166,9 @@ class _RecordingWidgetState extends State<RecordingWidget> {
       await readyForMore.future;
 
       await FlutterQuickVideoEncoder.finish();
-
       debugPrint("Finish recording: ${FlutterQuickVideoEncoder.filepath}");
-
-      int endTime = DateTime.now().millisecondsSinceEpoch;
-      int videoTime = ((endTime - recordingStartTime) / 1000).round() - 1;
-      debugPrint("video time: $videoTime");
-
-      widget.onComplete(outputPath);
-
       FlutterQuickVideoEncoder.dispose();
+      widget.onComplete(outputPath);
     } catch (e) {
       ('Error: $e');
     }
