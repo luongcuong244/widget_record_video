@@ -4,11 +4,9 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter_quick_video_encoder/flutter_quick_video_encoder.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_quick_video_encoder_fork/flutter_quick_video_encoder.dart';
 import 'package:widget_record_video/src/recording_controller.dart';
-import 'package:widget_record_video/src/utils.dart';
 
 class RecordingWidget extends StatefulWidget {
   const RecordingWidget({
@@ -17,8 +15,9 @@ class RecordingWidget extends StatefulWidget {
     required this.controller,
     this.limitTime = 120,
     required this.onComplete,
-    this.outputPath,
-    this.pixelRatio = 1.0,
+    required this.recordKey,
+    this.onUpdateElapsedTime,
+    this.onReachingLimitTime,
   });
 
   /// This is the widget you want to record the screen
@@ -28,17 +27,16 @@ class RecordingWidget extends StatefulWidget {
   final RecordingController controller;
 
   /// [limitTime] is the video recording time limit, when the limit is reached, the process automatically stops.
-  /// Its default value is 120 seconds. If you do not have a limit, please set the value -1
+  /// Its default value is 120 seconds. If you do not have a limit, please set the value less than or equal to 0
   final int limitTime;
 
   /// [onComplete] is the next action after creating a video, it returns the video path
   final Function(String) onComplete;
 
-  /// [outputPath] output address of the video, make sure you have write permission to this location otherwise leave it null, it will automatically be saved to app cache
-  final String? outputPath;
+  final GlobalKey recordKey;
 
-  /// [pixelRatio] is the ratio of the pixel density of the screen, the default value is 1.0
-  final double pixelRatio;
+  final Function(int)? onUpdateElapsedTime;
+  final Function()? onReachingLimitTime;
 
   @override
   State<RecordingWidget> createState() => _RecordingWidgetState();
@@ -60,14 +58,12 @@ class _RecordingWidgetState extends State<RecordingWidget> {
 
   Future<void> getImageSize() async {
     RenderRepaintBoundary boundary =
-        recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-    ui.Image image = await boundary.toImage(pixelRatio: widget.pixelRatio);
+    widget.recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+    ui.Image image = await boundary.toImage();
     width = image.width;
     height = image.height;
   }
 
-  GlobalKey recordKey = GlobalKey();
-  int frameIndex = 0;
   bool isRecording = false;
   Timer? timer;
   int width = 0;
@@ -79,19 +75,25 @@ class _RecordingWidgetState extends State<RecordingWidget> {
 
   int elapsedTime = 0;
 
-  void startRecording() {
+  int recordingStartTime = 0;
+  int pauseDuration = 0;
+
+  void startRecording(String outputPath) {
+    recordingStartTime = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       isRecording = true;
       elapsedTime = 0;
     });
-    startExportVideo();
+    startExportVideo(outputPath);
     timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      if (elapsedTime >= widget.limitTime) {
+      if (elapsedTime >= widget.limitTime && widget.limitTime > 0) {
+        widget.onReachingLimitTime?.call();
         stopRecording();
       } else if (!isPauseRecord) {
         setState(() {
           elapsedTime++;
         });
+        widget.onUpdateElapsedTime?.call(elapsedTime);
       }
     });
   }
@@ -108,36 +110,38 @@ class _RecordingWidgetState extends State<RecordingWidget> {
   }
 
   void continueRecording() {
+    recordingStartTime = DateTime.now().millisecondsSinceEpoch;
     isPauseRecord = false;
   }
 
-  Future<void> startExportVideo() async {
-    Directory? appDir = await getApplicationCacheDirectory();
+  Future<void> startExportVideo(String outputPath) async {
+    // Directory? appDir = await getApplicationCacheDirectory();
 
     try {
-      int startTime = DateTime.now().millisecondsSinceEpoch;
       await getImageSize();
 
       await FlutterQuickVideoEncoder.setup(
         width: (width ~/ 2) * 2,
         height: (height ~/ 2) * 2,
         fps: fps,
-        videoBitrate: 1000000,
+        videoBitrate: 2500000,
         profileLevel: ProfileLevel.any,
         audioBitrate: 0,
         audioChannels: 0,
         sampleRate: 0,
-        filepath: '${appDir.path}/exportVideoOnly.mp4',
+        filepath: outputPath,
+        //filepath: '${appDir.path}/exportVideoOnly.mp4',
       );
 
       Completer<void> readyForMore = Completer<void>();
       readyForMore.complete();
 
+      bool wasPreviouslyPaused = false;
       while (isRecording) {
         Uint8List? videoFrame;
         Uint8List? audioFrame;
-
         if (!isPauseRecord) {
+          wasPreviouslyPaused = true;
           videoFrame = await captureWidgetAsRGBA();
 
           await readyForMore.future;
@@ -151,6 +155,10 @@ class _RecordingWidgetState extends State<RecordingWidget> {
             debugPrint(e.toString());
           }
         } else {
+          if (wasPreviouslyPaused) {
+            pauseDuration += DateTime.now().millisecondsSinceEpoch - recordingStartTime;
+            wasPreviouslyPaused = false;
+          }
           await Future.delayed(const Duration(milliseconds: 20));
         }
       }
@@ -158,16 +166,14 @@ class _RecordingWidgetState extends State<RecordingWidget> {
       await readyForMore.future;
 
       await FlutterQuickVideoEncoder.finish();
+
+      debugPrint("Finish recording: ${FlutterQuickVideoEncoder.filepath}");
+
       int endTime = DateTime.now().millisecondsSinceEpoch;
-      int videoTime = ((endTime - startTime) / 1000).round() - 1;
+      int videoTime = ((endTime - recordingStartTime) / 1000).round() - 1;
       debugPrint("video time: $videoTime");
 
-      var resultPath = await Ultis.adjustVideoSpeed(
-        FlutterQuickVideoEncoder.filepath,
-        videoTime,
-        widget.outputPath,
-      );
-      widget.onComplete(resultPath);
+      widget.onComplete(outputPath);
 
       FlutterQuickVideoEncoder.dispose();
     } catch (e) {
@@ -178,13 +184,13 @@ class _RecordingWidgetState extends State<RecordingWidget> {
   Future<Uint8List?> captureWidgetAsRGBA() async {
     try {
       RenderRepaintBoundary boundary =
-          recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: widget.pixelRatio);
+      widget.recordKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage();
       width = image.width;
       height = image.height;
-
       ByteData? byteData =
-          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+
       return byteData?.buffer.asUint8List();
     } catch (e) {
       debugPrint(
@@ -197,7 +203,10 @@ class _RecordingWidgetState extends State<RecordingWidget> {
   Future<void> _appendFrames(
       Uint8List? videoFrame, Uint8List? audioFrame) async {
     if (videoFrame != null) {
-      await FlutterQuickVideoEncoder.appendVideoFrame(videoFrame);
+      final currentTime = DateTime.now().millisecondsSinceEpoch;
+      final presentationTime = pauseDuration + currentTime - recordingStartTime;
+      print("presentationTime: $presentationTime");
+      await FlutterQuickVideoEncoder.appendVideoFrame(videoFrame, presentationTime);
     } else {
       debugPrint("Error append $videoFrame");
     }
@@ -220,11 +229,6 @@ class _RecordingWidgetState extends State<RecordingWidget> {
   @override
   Widget build(BuildContext context) {
     _context = context;
-    return Scaffold(
-      body: RepaintBoundary(
-        key: recordKey,
-        child: widget.child,
-      ),
-    );
+    return widget.child;
   }
 }

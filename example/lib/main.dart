@@ -18,15 +18,15 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   final RecordingController recordingController = RecordingController();
+  final GlobalKey _repaintBoundaryKey = GlobalKey();
   late AnimationController _animationController;
   late Animation<Color?> _colorAnimation;
   Timer? _colorChangeTimer;
-  Timer? _timer; // Timer for the countdown
   VideoPlayerController? _videoController;
   String? _videoPath;
-  int elapsedTime = 0; // Time counter variable
 
   String? outputPath;
+  int elapsedTime = 0;
 
   @override
   void initState() {
@@ -49,7 +49,6 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   @override
   void dispose() {
     _colorChangeTimer?.cancel();
-    _timer?.cancel(); // Cancel the countdown timer
     _videoController?.dispose();
     super.dispose();
   }
@@ -62,22 +61,14 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   }
 
   void _startRecording() {
-    setState(() {
-      elapsedTime = 0; // Reset the time counter
-    });
-    recordingController.start?.call();
-
-    // Start the countdown timer
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      setState(() {
-        elapsedTime++;
-      });
-    });
+    if (outputPath == null) {
+      return;
+    }
+    recordingController.start?.call(outputPath!);
   }
 
   Future<void> _stopRecording() async {
     recordingController.stop?.call();
-    _timer?.cancel(); // Stop the countdown timer
   }
 
   void _pauseRecording() async {
@@ -117,26 +108,41 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
                   child: RecordingWidget(
                     controller: recordingController,
                     onComplete: _onRecordingComplete,
-                    outputPath: outputPath,
-                    child: AnimatedBuilder(
-                      animation: _colorAnimation,
-                      builder: (context, child) {
-                        return Container(
-                          width: 200,
-                          height: 200,
-                          color: _colorAnimation.value,
-                          child: Center(
-                            child: Text(
-                              '$elapsedTime', // Display elapsed seconds
-                              style: const TextStyle(
-                                fontSize: 24,
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                    limitTime: 10, // Set the recording time limit to 10 seconds
+                    onUpdateElapsedTime: (seconds) {
+                      setState(() {
+                        elapsedTime = seconds;
+                      });
+                    },
+                    onReachingLimitTime: () {
+                      setState(() {
+                        elapsedTime = 0;
+                      });
+                      // do something to update your state when the recording time limit is reached
+                    },
+                    recordKey: _repaintBoundaryKey,
+                    child: RepaintBoundary(
+                      key: _repaintBoundaryKey,
+                      child: AnimatedBuilder(
+                        animation: _colorAnimation,
+                        builder: (context, child) {
+                          return Container(
+                            width: 200,
+                            height: 200,
+                            color: _colorAnimation.value,
+                            child: Center(
+                              child: Text(
+                                '$elapsedTime', // Display elapsed seconds
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),

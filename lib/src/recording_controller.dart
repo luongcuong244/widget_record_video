@@ -1,6 +1,6 @@
 class RecordingController {
   /// start recording
-  void Function()? start;
+  void Function(String)? start;
 
   /// stop recording
   void Function()? stop;
