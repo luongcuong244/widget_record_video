@@ -102,6 +102,7 @@ class _RecordingWidgetState extends State<RecordingWidget> {
     timer?.cancel();
     setState(() {
       isRecording = false;
+      isPauseRecord = false;
     });
   }
 
